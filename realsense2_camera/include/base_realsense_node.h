@@ -62,7 +62,7 @@ namespace realsense2_camera
     const stream_index_pair ACCEL{RS2_STREAM_ACCEL, 0};
     const stream_index_pair POSE{RS2_STREAM_POSE, 0};
     const stream_index_pair CONFIDENCE{RS2_STREAM_CONFIDENCE, 0};
-    
+
 
     const std::vector<stream_index_pair> IMAGE_STREAMS = {DEPTH, INFRA0, INFRA1, INFRA2,
                                                           COLOR,
@@ -85,7 +85,7 @@ namespace realsense2_camera
 
 	class PipelineSyncer : public rs2::asynchronous_syncer
 	{
-	public: 
+	public:
 		void operator()(rs2::frame f) const
 		{
 			invoke(std::move(f));
@@ -96,7 +96,7 @@ namespace realsense2_camera
     {
         public:
             SyncedImuPublisher() {_is_enabled=false;};
-            SyncedImuPublisher(rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher, 
+            SyncedImuPublisher(rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher,
                                std::size_t waiting_list_size=1000);
             ~SyncedImuPublisher();
             void Pause();   // Pause sending messages. All messages from now on are saved in queue.
@@ -104,7 +104,7 @@ namespace realsense2_camera
             void Publish(sensor_msgs::msg::Imu msg);     //either send or hold message.
             size_t getNumSubscribers();
             void Enable(bool is_enabled) {_is_enabled=is_enabled;};
-        
+
         private:
             void PublishPendingMessages();
 
@@ -151,6 +151,11 @@ namespace realsense2_camera
         };
 
         bool _is_running;
+
+        std::string _camera_name;
+        std::string _camera_namespace;
+        std::string _camera_tf_prefix;
+
         std::string _base_frame_id;
         std::string _odom_frame_id;
         std::map<stream_index_pair, std::string> _frame_id;
@@ -283,7 +288,7 @@ namespace realsense2_camera
         std::condition_variable _cv_tf, _update_functions_cv;
 
         std::map<stream_index_pair, image_transport::Publisher> _image_publishers;
-        
+
         std::map<stream_index_pair, rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr> _imu_publishers;
         std::shared_ptr<rclcpp::Publisher<nav_msgs::msg::Odometry>> _odom_publisher;
         std::shared_ptr<SyncedImuPublisher> _synced_imu_publisher;

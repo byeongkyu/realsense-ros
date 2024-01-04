@@ -12,9 +12,9 @@ using namespace realsense2_camera;
 
 // stream_index_pair sip{stream_type, stream_index};
 #define STREAM_NAME(sip) (static_cast<std::ostringstream&&>(std::ostringstream() << _stream_name[sip.first] << ((sip.second>0) ? std::to_string(sip.second) : ""))).str()
-#define FRAME_ID(sip) (static_cast<std::ostringstream&&>(std::ostringstream() << "camera_" << STREAM_NAME(sip) << "_frame")).str()
-#define OPTICAL_FRAME_ID(sip) (static_cast<std::ostringstream&&>(std::ostringstream() << "camera_" << STREAM_NAME(sip) << "_optical_frame")).str()
-#define ALIGNED_DEPTH_TO_FRAME_ID(sip) (static_cast<std::ostringstream&&>(std::ostringstream() << "camera_aligned_depth_to_" << STREAM_NAME(sip) << "_frame")).str()
+#define FRAME_ID(name, sip) (static_cast<std::ostringstream&&>(std::ostringstream() << name << "_" << STREAM_NAME(sip) << "_frame")).str()
+#define OPTICAL_FRAME_ID(name, sip) (static_cast<std::ostringstream&&>(std::ostringstream() << name << "_" << STREAM_NAME(sip) << "_optical_frame")).str()
+#define ALIGNED_DEPTH_TO_FRAME_ID(name, sip) (static_cast<std::ostringstream&&>(std::ostringstream() << name << "_aligned_depth_to_" << STREAM_NAME(sip) << "_frame")).str()
 
 
 std::vector<std::string> split(const std::string& s, char delimiter) // Thanks to Jonathan Boccara (https://www.fluentcpp.com/2017/04/21/how-to-split-a-string-in-c/)
@@ -927,7 +927,17 @@ void BaseRealSenseNode::getParameters()
         param_name = "enable_" + STREAM_NAME(stream);
         setNgetNodeParameter(_enable[stream], param_name, ENABLE_IMU);
     }
-    setNgetNodeParameter(_base_frame_id, "base_frame_id", DEFAULT_BASE_FRAME_ID);
+
+    setNgetNodeParameter(_camera_name, "camera_name", std::string("camera"));
+    setNgetNodeParameter(_camera_namespace, "camera_namespace", std::string(""));
+
+    if(_camera_namespace != "")
+    {
+        _camera_tf_prefix = _camera_namespace + "_";
+    }
+
+
+    setNgetNodeParameter(_base_frame_id, "base_frame_id", _camera_name + DEFAULT_BASE_FRAME_ID);
     setNgetNodeParameter(_odom_frame_id, "odom_frame_id", DEFAULT_ODOM_FRAME_ID);
 
     std::vector<stream_index_pair> streams(IMAGE_STREAMS);
@@ -935,10 +945,10 @@ void BaseRealSenseNode::getParameters()
     for (auto& stream : streams)
     {
         std::string param_name(static_cast<std::ostringstream&&>(std::ostringstream() << STREAM_NAME(stream) << "_frame_id").str());
-        setNgetNodeParameter(_frame_id[stream], param_name, FRAME_ID(stream));
+        setNgetNodeParameter(_frame_id[stream], param_name, FRAME_ID(_camera_name, stream));
 
         param_name = static_cast<std::ostringstream&&>(std::ostringstream() << STREAM_NAME(stream) << "_optical_frame_id").str();
-        setNgetNodeParameter(_optical_frame_id[stream], param_name, OPTICAL_FRAME_ID(stream));
+        setNgetNodeParameter(_optical_frame_id[stream], param_name, OPTICAL_FRAME_ID(_camera_name, stream));
     }
 
     std::string unite_imu_method_str;
@@ -962,7 +972,7 @@ void BaseRealSenseNode::getParameters()
     {
         stream_index_pair stream(COLOR);
         std::string param_name(static_cast<std::ostringstream&&>(std::ostringstream() << "aligned_depth_to_" << STREAM_NAME(stream) << "_frame_id").str());
-        setNgetNodeParameter(_depth_aligned_frame_id[stream], param_name, ALIGNED_DEPTH_TO_FRAME_ID(stream));
+        setNgetNodeParameter(_depth_aligned_frame_id[stream], param_name, ALIGNED_DEPTH_TO_FRAME_ID(_camera_name, stream));
     }
 
     setNgetNodeParameter(_allow_no_texture_points, "allow_no_texture_points", ALLOW_NO_TEXTURE_POINTS);
@@ -1131,9 +1141,9 @@ void BaseRealSenseNode::setupPublishers()
             image_raw << stream_name << "/image_" << ((rectified_image)?"rect_":"") << "raw";
             camera_info << stream_name << "/camera_info";
 
-            _image_publishers[stream] = {image_transport::create_publisher(&_node, image_raw.str(), qos_string_to_qos(_qos[stream]))};
+            _image_publishers[stream] = {image_transport::create_publisher(&_node, _camera_name + "/" + image_raw.str(), qos_string_to_qos(_qos[stream]))};
             _info_publisher[stream] = _node.create_publisher<sensor_msgs::msg::CameraInfo>(
-                  camera_info.str(),
+                  _camera_name + "/" + camera_info.str(),
                   rclcpp::QoS(
                     rclcpp::QoSInitialization::from_rmw(qos_string_to_qos(_info_qos[stream])),
                     qos_string_to_qos(_info_qos[stream])));
@@ -1145,10 +1155,10 @@ void BaseRealSenseNode::setupPublishers()
                 aligned_camera_info << "aligned_depth_to_" << stream_name << "/camera_info";
 
                 std::string aligned_stream_name = "aligned_depth_to_" + stream_name;
-                _depth_aligned_image_publishers[stream] = {image_transport::create_publisher(&_node, aligned_image_raw.str(),
+                _depth_aligned_image_publishers[stream] = {image_transport::create_publisher(&_node, _camera_name + "/" + aligned_image_raw.str(),
                                                            qos_string_to_qos(_qos[stream]))};
                 _depth_aligned_info_publisher[stream] = _node.create_publisher<sensor_msgs::msg::CameraInfo>(
-                      aligned_camera_info.str(),
+                      _camera_name + "/" + aligned_camera_info.str(),
                       rclcpp::QoS(
                         rclcpp::QoSInitialization::from_rmw(qos_string_to_qos(_info_qos[stream])),
                         qos_string_to_qos(_info_qos[stream])));
@@ -1157,7 +1167,7 @@ void BaseRealSenseNode::setupPublishers()
             if (stream == DEPTH && _pointcloud)
             {
                 _pointcloud_publisher = _node.create_publisher<sensor_msgs::msg::PointCloud2>(
-                      "depth/color/points",
+                      _camera_name + "/" + "depth/color/points",
                       rclcpp::QoS(
                         rclcpp::QoSInitialization::from_rmw(qos_string_to_qos(_pointcloud_qos)),
                         qos_string_to_qos(_pointcloud_qos)));
@@ -1991,7 +2001,7 @@ rclcpp::Time BaseRealSenseNode::frameSystemTimeSec(rs2::frame frame)
         rclcpp::Duration elapsed_camera(rclcpp::Duration::from_nanoseconds(elapsed_camera_ns));
 #else
         rclcpp::Duration elapsed_camera(elapsed_camera_ns);
-#endif        
+#endif
         return rclcpp::Time(_ros_time_base + elapsed_camera);
     }
     else
@@ -2062,7 +2072,7 @@ void BaseRealSenseNode::updateStreamCalibData(const rs2::video_stream_profile& v
     _stream_intrinsics[stream_index] = intrinsic;
     _camera_info[stream_index].width = intrinsic.width;
     _camera_info[stream_index].height = intrinsic.height;
-    _camera_info[stream_index].header.frame_id = _optical_frame_id[stream_index];
+    _camera_info[stream_index].header.frame_id = _camera_tf_prefix + _optical_frame_id[stream_index];
 
     _camera_info[stream_index].k.at(0) = intrinsic.fx;
     _camera_info[stream_index].k.at(2) = intrinsic.ppx;
@@ -2160,8 +2170,8 @@ void BaseRealSenseNode::publish_static_tf(const rclcpp::Time& t,
 {
     geometry_msgs::msg::TransformStamped msg;
     msg.header.stamp = t;
-    msg.header.frame_id = from;
-    msg.child_frame_id = to;
+    msg.header.frame_id = _camera_tf_prefix + from;
+    msg.child_frame_id = _camera_tf_prefix + to;
     msg.transform.translation.x = trans.z;
     msg.transform.translation.y = -trans.x;
     msg.transform.translation.z = -trans.y;
@@ -2479,8 +2489,8 @@ void BaseRealSenseNode::publishPointCloud(rs2::points pc, const rclcpp::Time& t,
         }
     }
     _msg_pointcloud.header.stamp = t;
-    if (_align_depth) _msg_pointcloud.header.frame_id = _optical_frame_id[COLOR];
-    else              _msg_pointcloud.header.frame_id = _optical_frame_id[DEPTH];
+    if (_align_depth) _msg_pointcloud.header.frame_id = _camera_tf_prefix + _optical_frame_id[COLOR];
+    else              _msg_pointcloud.header.frame_id = _camera_tf_prefix + _optical_frame_id[DEPTH];
     if (!_ordered_pc)
     {
         _msg_pointcloud.width = valid_count;
